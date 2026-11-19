@@ -1,0 +1,24 @@
+FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS rest
+WORKDIR /app
+COPY telemetry/package*.json ./telemetry/
+RUN cd telemetry && npm ci --omit=dev
+COPY telemetry ./telemetry
+COPY ticket-service/package*.json ./ticket-service/
+RUN cd ticket-service && npm ci --omit=dev
+COPY configuration.mjs backend.env.example ./
+COPY ticket-service ./ticket-service
+RUN mkdir /data
+CMD ["node","ticket-service/server.mjs","ticket"]
+
+FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS mcp
+WORKDIR /app
+COPY telemetry/package*.json ./telemetry/
+RUN cd telemetry && npm ci --omit=dev
+COPY telemetry ./telemetry
+COPY mcp-ping/package*.json ./mcp-ping/
+RUN cd mcp-ping && npm ci --omit=dev
+COPY configuration.mjs backend.env.example ./
+COPY ticket-service/create-ticket.mjs ./ticket-service/
+COPY mcp-ping ./mcp-ping
+RUN mkdir /data
+CMD ["node","mcp-ping/server.mjs"]

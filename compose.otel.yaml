@@ -1,0 +1,31 @@
+# docker compose --env-file ticket-service/.env -f compose.yaml -f compose.otel.yaml up -d --build --wait
+x-otel: &otel
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_METRICS_EXPORTER: none
+  OTEL_LOGS_EXPORTER: none
+  OTEL_PROPAGATORS: tracecontext,baggage
+  OTEL_TRACES_SAMPLER: parentbased_always_on
+  OTEL_BSP_SCHEDULE_DELAY: "500"
+  OTEL_BSP_EXPORT_TIMEOUT: "5000"
+services:
+  jaeger:
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.20.0
+    ports: ["127.0.0.1:16686:16686", "127.0.0.1:4317:4317", "127.0.0.1:4318:4318"]
+  employee:
+    command: [node, --import, ./telemetry/register.mjs, ticket-service/server.mjs, employee]
+    environment: {<<: *otel, OTEL_SERVICE_NAME: employee-api}
+    depends_on: {jaeger: {condition: service_started}}
+  ticket:
+    command: [node, --import, ./telemetry/register.mjs, ticket-service/server.mjs, ticket]
+    environment: {<<: *otel, OTEL_SERVICE_NAME: ticket-api}
+    depends_on: {jaeger: {condition: service_started}}
+  graphql:
+    command: [node, --import, ./telemetry/register.mjs, ticket-service/graphql-server.mjs]
+    environment: {<<: *otel, OTEL_SERVICE_NAME: graphql}
+    depends_on: {jaeger: {condition: service_started}}
+  mcp:
+    command: [node, --import, ./telemetry/register.mjs, mcp-ping/server.mjs]
+    environment: {<<: *otel, OTEL_SERVICE_NAME: mcp}
+    depends_on: {jaeger: {condition: service_started}}

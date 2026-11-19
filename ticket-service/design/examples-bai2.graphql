@@ -1,0 +1,11 @@
+mutation CreateTicket($input: CreateTicketInput!, $key: String!) {
+  createTicket(input: $input, idempotencyKey: $key) {
+    replayed
+    ticket {
+      id code title description status priority dueAt createdAt updatedAt
+      requesterId assigneeId
+      requester { id code name department }
+      assignee { id code name department }
+    }
+  }
+}

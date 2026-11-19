@@ -1,0 +1,10 @@
+**/node_modules
+**/data
+**/.env
+**/.env.*
+**/*.local.*
+**/local-credentials.json
+**/matrix-session.local.json
+backups
+artifacts
+.git

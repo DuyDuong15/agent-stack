@@ -1,0 +1,81 @@
+name: agent-backend
+services:
+  employee:
+    build: {context: ., dockerfile: Dockerfile.backend, target: rest}
+    command: [node, ticket-service/server.mjs, employee]
+    environment:
+      REST_HOST: 0.0.0.0
+      EMPLOYEE_API_KEY: ${EMPLOYEE_API_KEY:?Set EMPLOYEE_API_KEY}
+      EMPLOYEE_DB: /data/employee.sqlite
+    ports: ["127.0.0.1:8011:8011"]
+    volumes: ["employee-runtime:/data", "./ticket-service/data/employee.sqlite:/data/employee.sqlite"]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:8011/employees?limit=1',{headers:{'X-API-Key':process.env.EMPLOYEE_API_KEY}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  ticket:
+    build: {context: ., dockerfile: Dockerfile.backend, target: rest}
+    command: [node, ticket-service/server.mjs, ticket]
+    environment:
+      REST_HOST: 0.0.0.0
+      TICKET_API_KEY: ${TICKET_API_KEY:?Set TICKET_API_KEY}
+      TICKET_DB: /data/ticket.sqlite
+    ports: ["127.0.0.1:8012:8012"]
+    volumes: ["ticket-runtime:/data", "./ticket-service/data/ticket.sqlite:/data/ticket.sqlite"]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:8012/tickets?limit=1',{headers:{'X-API-Key':process.env.TICKET_API_KEY}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  graphql:
+    build: {context: ., dockerfile: Dockerfile.backend, target: rest}
+    command: [node, ticket-service/graphql-server.mjs]
+    environment:
+      GRAPHQL_HOST: 0.0.0.0
+      EMPLOYEE_API_URL: http://employee:8011
+      TICKET_API_URL: http://ticket:8012
+      EMPLOYEE_API_KEY: ${EMPLOYEE_API_KEY}
+      TICKET_API_KEY: ${TICKET_API_KEY}
+      GRAPHQL_API_KEY: ${GRAPHQL_API_KEY:?Set GRAPHQL_API_KEY}
+    ports: ["127.0.0.1:8013:8013"]
+    depends_on:
+      employee: {condition: service_healthy}
+      ticket: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:8013/graphql',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':process.env.GRAPHQL_API_KEY},body:JSON.stringify({query:'{__typename}'})}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  mcp:
+    build: {context: ., dockerfile: Dockerfile.backend, target: mcp}
+    environment:
+      GRAPHQL_URL: http://graphql:8013/graphql
+      GRAPHQL_API_KEY: ${GRAPHQL_API_KEY}
+      MATRIX_URL: http://host.docker.internal:8008
+      MATRIX_CREDENTIALS_FILE: /run/matrix/credentials.json
+      DRAFT_DB: /data/drafts.sqlite
+    ports: ["8005:8005"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      - draft-runtime:/data
+      - ./mcp-ping/data/drafts.sqlite:/data/drafts.sqlite
+      - type: volume
+        source: matrix-session
+        target: /run/matrix
+        read_only: true
+        volume: {subpath: credentials/matrix}
+    depends_on:
+      graphql: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:8005/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+volumes:
+  employee-runtime:
+  ticket-runtime:
+  draft-runtime:
+  matrix-session:
+    external: true
+    name: openclaw-data

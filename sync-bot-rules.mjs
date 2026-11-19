@@ -1,0 +1,11 @@
+import {execFileSync} from 'node:child_process';
+import {readFileSync} from 'node:fs';
+const path='/root/.openclaw/workspace/AGENTS.md',marker='\n<!-- onboarding-revision12 -->\n';
+const end='\n<!-- end-onboarding-revision12 -->\n';
+let prior=execFileSync('docker',['exec','openclaw-box','cat',path],{encoding:'utf8'});
+if(prior.startsWith(marker)&&prior.includes(end)) prior=prior.slice(prior.indexOf(end)+end.length);
+prior=prior.split(marker)[0];
+prior=prior.split(/(?=^## )/m).filter(section=>!/^## (Ticket creation \(Bài 2\)|Supported capabilities|Explicit requests outside supported tools)/.test(section)).join('');
+const rules=['write-chat-rules.md','capability-chat-rules.md','status-chat-rules.md'].map(name=>readFileSync(new URL('./mcp-ping/'+name,import.meta.url),'utf8')).join('\n');
+execFileSync('docker',['exec','-i','openclaw-box','sh','-c','cat > '+path],{input:marker+rules+end+prior});
+console.log('Synced onboarding bot rules.');

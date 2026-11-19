@@ -1,0 +1,30 @@
+# Bài 2 extension. Loaded together with schema.graphql; consolidated review authorized.
+extend schema {
+  mutation: Mutation
+}
+
+input CreateTicketInput {
+  """Trimmed, 1–200 characters. Whitespace-only is rejected by REST."""
+  title: String!
+  """Trimmed, 1–4000 characters."""
+  description: String!
+  """Existing active employee UUID, never inferred from Matrix account."""
+  requesterId: UUID!
+  """Omitted/null means unassigned; otherwise must be active."""
+  assigneeId: UUID
+  priority: TicketPriority!
+  """Omitted/null means no deadline; otherwise future ISO date-time with timezone."""
+  dueAt: DateTime
+}
+
+type CreateTicketPayload {
+  """Canonical ticket returned by REST. Nested employee fields use the existing loader."""
+  ticket: Ticket!
+  """True if REST replayed the same successful idempotent operation."""
+  replayed: Boolean!
+}
+
+type Mutation {
+  """POST /tickets. Idempotency key: 8–128 ASCII letters/digits/_/-. Nullable root preserves other fields on failure."""
+  createTicket(input: CreateTicketInput!, idempotencyKey: String!): CreateTicketPayload
+}

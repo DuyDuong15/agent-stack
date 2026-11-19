@@ -1,0 +1,7 @@
+{
+  "name": "ticket-schema-review",
+  "private": true,
+  "type": "module",
+  "scripts": {"check": "node validate-schema.mjs"},
+  "devDependencies": {"graphql": "^16.11.0"}
+}

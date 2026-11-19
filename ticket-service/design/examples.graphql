@@ -1,0 +1,45 @@
+# 1. Resolve ambiguous names before filtering tickets by employee UUID.
+query FindEmployee($name: String!) {
+  employees(filter: {q: $name}) {
+    total
+    items { id code name department active }
+  }
+}
+
+# 2. One operation joins Ticket REST and Employee REST; statistics stay in REST.
+query TicketDashboard($filter: TicketFilter, $page: PaginationInput! = {}) {
+  tickets(filter: $filter, pagination: $page) {
+    total limit offset evaluatedAt
+    items {
+      id code title status priority dueAt requesterId assigneeId
+      requester { id code name department active }
+      assignee { id code name department active }
+    }
+  }
+  ticketStatistics(filter: $filter) {
+    total openCount overdueCount evaluatedAt
+    byStatus { OPEN IN_PROGRESS RESOLVED CLOSED }
+    byPriority { LOW MEDIUM HIGH }
+  }
+}
+
+# 3. Human-readable code.
+query FindTicketByCode($code: String!) {
+  tickets(filter: {code: $code}) {
+    total
+    items { id code title description requester { name } assignee { name } }
+  }
+}
+
+# 4. Missing UUID returns null; upstream failure returns null plus errors.
+query TicketDetail($id: UUID!) {
+  ticket(id: $id) {
+    id code title description status priority dueAt createdAt updatedAt
+    requester { id name }
+    assignee { id name }
+  }
+}
+
+query EmployeeDetail($id: UUID!) {
+  employee(id: $id) { id code name department active }
+}

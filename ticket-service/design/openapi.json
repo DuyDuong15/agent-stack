@@ -1,0 +1,1217 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "IT Support Ticket — Employee and Ticket APIs",
+    "version": "0.3.0",
+    "description": "Implemented onboarding contract: Employee and Ticket REST, including create and replay. Separate services use path-level servers; GraphQL validates employee references before new writes. See ../../SPEC.md for current business rules. HTTP only for local development.",
+    "license": {
+      "name": "Private onboarding draft"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8012",
+      "description": "Ticket API local"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Employees",
+      "description": "Employee lookup and batch resolution; Employee API on port 8011."
+    },
+    {
+      "name": "Tickets",
+      "description": "Ticket queries, REST-computed statistics and creation; Ticket API on port 8012."
+    }
+  ],
+  "security": [
+    {
+      "ServiceApiKey": []
+    }
+  ],
+  "paths": {
+    "/employees": {
+      "servers": [
+        {
+          "url": "http://localhost:8011",
+          "description": "Employee API local"
+        }
+      ],
+      "get": {
+        "operationId": "listEmployees",
+        "tags": [
+          "Employees"
+        ],
+        "summary": "Search employees or resolve a batch of IDs",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "description": "Case/accent-insensitive name substring or exact code; trimmed, not blank."
+          },
+          {
+            "name": "department",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": "Exact case/accent-insensitive department."
+          },
+          {
+            "name": "active",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Omit to include both active and inactive."
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "description": "Comma-separated UUIDs. Batch mode forbids q/department/active/limit/offset; returns EmployeeBatch. Missing IDs go in missingIds; found items ordered by code.",
+            "style": "form",
+            "explode": false
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "Page size."
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "description": "Zero-based offset."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EmployeePage"
+                    },
+                    {
+                      "$ref": "#/components/schemas/EmployeeBatch"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "description": "Without ids returns EmployeePage ordered by code ascending. With ids returns EmployeeBatch. Unknown query parameters and incompatible filters return 400. Empty results are 200."
+      }
+    },
+    "/employees/{employeeId}": {
+      "servers": [
+        {
+          "url": "http://localhost:8011",
+          "description": "Employee API local"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "employeeId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": "Employee UUID."
+        }
+      ],
+      "get": {
+        "operationId": "getEmployee",
+        "tags": [
+          "Employees"
+        ],
+        "summary": "Get employee by UUID",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Resource found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Employee"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      }
+    },
+    "/tickets": {
+      "servers": [
+        {
+          "url": "http://localhost:8012",
+          "description": "Ticket API local"
+        }
+      ],
+      "get": {
+        "operationId": "listTickets",
+        "tags": [
+          "Tickets"
+        ],
+        "summary": "Search tickets with pagination",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Trimmed, case/accent-insensitive substring of title or description; empty is invalid."
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^IT-[0-9]{6,}$"
+            },
+            "description": "Exact ticket code."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "OPEN",
+                "IN_PROGRESS",
+                "RESOLVED",
+                "CLOSED"
+              ]
+            },
+            "description": "Exact status."
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "LOW",
+                "MEDIUM",
+                "HIGH"
+              ]
+            },
+            "description": "Exact priority."
+          },
+          {
+            "name": "requesterId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Exact requester ID."
+          },
+          {
+            "name": "assigneeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Exact assignee ID; cannot combine with unassigned=true."
+          },
+          {
+            "name": "unassigned",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "true: only unassigned; false: only assigned; omit: both."
+          },
+          {
+            "name": "overdue",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "true: open/in-progress and dueAt < evaluatedAt. false: complement including resolved, closed and no due date."
+          },
+          {
+            "name": "createdFrom",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Inclusive lower bound (UTC or explicit offset)."
+          },
+          {
+            "name": "createdTo",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Exclusive upper bound; must be greater than createdFrom when both supplied."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "Page size."
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "description": "Zero-based offset."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "description": "Combine filters with AND. Sort createdAt descending, then id ascending. total counts all matches; items contains one page. evaluatedAt is a single server timestamp shared by overdue calculations for the request. Unknown query parameters return 400. Empty results are 200."
+      },
+      "post": {
+        "operationId": "createTicket",
+        "tags": [
+          "Tickets"
+        ],
+        "summary": "Bài 2 — create ticket after user confirmation",
+        "description": "REST độc lập, không gọi Employee API. GraphQL kiểm tra nhân viên tồn tại/hoạt động trước khi tạo. Ticket REST kiểm tra payload, deadline, idempotency và trùng nghiệp vụ. Trùng requester + assignee + title (trim/case-insensitive), với ticket OPEN/IN_PROGRESS, trả 409 TICKET_DUPLICATE. Replay cùng key/payload trả ticket cũ trước mọi kiểm tra mới.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "description": "Unique per confirmed action; reuse across retries. Scope: service credential + endpoint; retention at least 24h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTicket"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created, or replay of previously successful creation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ticket"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Relative resource URL /tickets/{ticketId}.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Idempotency-Replayed": {
+                "description": "true for replay; false for first creation.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      }
+    },
+    "/tickets/{ticketId}": {
+      "servers": [
+        {
+          "url": "http://localhost:8012",
+          "description": "Ticket API local"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "ticketId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": "Ticket UUID."
+        }
+      ],
+      "get": {
+        "operationId": "getTicket",
+        "tags": [
+          "Tickets"
+        ],
+        "summary": "Get ticket by UUID",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Resource found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ticket"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      }
+    },
+    "/ticket-statistics": {
+      "servers": [
+        {
+          "url": "http://localhost:8012",
+          "description": "Ticket API local"
+        }
+      ],
+      "get": {
+        "operationId": "getTicketStatistics",
+        "tags": [
+          "Tickets"
+        ],
+        "summary": "Aggregate all matching tickets, not just a page",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Trimmed, case/accent-insensitive substring of title or description; empty is invalid."
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^IT-[0-9]{6,}$"
+            },
+            "description": "Exact ticket code."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "OPEN",
+                "IN_PROGRESS",
+                "RESOLVED",
+                "CLOSED"
+              ]
+            },
+            "description": "Exact status."
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "LOW",
+                "MEDIUM",
+                "HIGH"
+              ]
+            },
+            "description": "Exact priority."
+          },
+          {
+            "name": "requesterId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Exact requester ID."
+          },
+          {
+            "name": "assigneeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Exact assignee ID; cannot combine with unassigned=true."
+          },
+          {
+            "name": "unassigned",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "true: only unassigned; false: only assigned; omit: both."
+          },
+          {
+            "name": "overdue",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "true: open/in-progress and dueAt < evaluatedAt. false: complement including resolved, closed and no due date."
+          },
+          {
+            "name": "createdFrom",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Inclusive lower bound (UTC or explicit offset)."
+          },
+          {
+            "name": "createdTo",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Exclusive upper bound; must be greater than createdFrom when both supplied."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketStatistics"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "description": "Same filters and semantics as GET /tickets, without pagination. Counts include explicit zeros for every enum value. openCount = OPEN + IN_PROGRESS within the filtered set. overdueCount is overdue tickets within that same set. All counts evaluated from one consistent DB snapshot/time. Unknown query parameters return 400."
+      }
+    },
+    "/ticket-replays": {
+      "servers": [
+        {
+          "url": "http://localhost:8012",
+          "description": "Ticket API local"
+        }
+      ],
+      "post": {
+        "operationId": "lookupTicketReplay",
+        "tags": [
+          "Tickets"
+        ],
+        "summary": "Tra kết quả idempotency trước khi kiểm tra nhân viên",
+        "description": "Không tạo ticket. Cùng key/payload trả kết quả cũ; chưa có key trả ticket null, replayed false; khác payload trả 409.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "description": "Unique per confirmed action; reuse across retries. Scope: service credential + endpoint; retention at least 24h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTicket"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Kết quả tra cứu",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "ticket": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "code": {
+                          "type": "string",
+                          "pattern": "^IT-[0-9]{6,}$"
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "description": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4000
+                        },
+                        "requesterId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "assigneeId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "nullable": true
+                        },
+                        "priority": {
+                          "type": "string",
+                          "enum": [
+                            "LOW",
+                            "MEDIUM",
+                            "HIGH"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "OPEN",
+                            "IN_PROGRESS",
+                            "RESOLVED",
+                            "CLOSED"
+                          ]
+                        },
+                        "dueAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "code",
+                        "title",
+                        "description",
+                        "requesterId",
+                        "assigneeId",
+                        "priority",
+                        "status",
+                        "dueAt",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "nullable": true
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ticket",
+                    "replayed"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ServiceApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "Service-to-service credential configured in environment. Never embed a real key in this contract."
+      }
+    },
+    "schemas": {
+      "Employee": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^EMP-[0-9]{3,}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "department": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "department",
+          "active"
+        ]
+      },
+      "Ticket": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^IT-[0-9]{6,}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "requesterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assigneeId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "IN_PROGRESS",
+              "RESOLVED",
+              "CLOSED"
+            ]
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "title",
+          "description",
+          "requesterId",
+          "assigneeId",
+          "priority",
+          "status",
+          "dueAt",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "EmployeePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Employee"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "EmployeeBatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Employee"
+            }
+          },
+          "missingIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "items",
+          "missingIds"
+        ]
+      },
+      "TicketPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ticket"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "evaluatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "evaluatedAt"
+        ]
+      },
+      "TicketStatistics": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "openCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "overdueCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "byStatus": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "OPEN": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "IN_PROGRESS": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "RESOLVED": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "CLOSED": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "OPEN",
+              "IN_PROGRESS",
+              "RESOLVED",
+              "CLOSED"
+            ]
+          },
+          "byPriority": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "LOW": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "MEDIUM": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "HIGH": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "LOW",
+              "MEDIUM",
+              "HIGH"
+            ]
+          },
+          "evaluatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "total",
+          "openCount",
+          "overdueCount",
+          "byStatus",
+          "byPriority",
+          "evaluatedAt"
+        ]
+      },
+      "CreateTicket": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Trim before validation; whitespace-only is invalid."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "Trim before validation; whitespace-only is invalid."
+          },
+          "requesterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assigneeId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Omitted/null means unassigned."
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH"
+            ]
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Omitted/null means no deadline. If present must be later than server creation time."
+          }
+        },
+        "required": [
+          "title",
+          "description",
+          "requesterId",
+          "priority"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "field": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          },
+          "requestId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "requestId"
+        ]
+      }
+    },
+    "responses": {
+      "Error400": {
+        "description": "VALIDATION_ERROR: malformed UUID/date, invalid body/query, incompatible filters or missing idempotency key.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Error401": {
+        "description": "UNAUTHORIZED: missing/invalid X-API-Key.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Error404": {
+        "description": "EMPLOYEE_NOT_FOUND or TICKET_NOT_FOUND.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Error409": {
+        "description": "TICKET_DUPLICATE, IDEMPOTENCY_CONFLICT or REQUEST_IN_PROGRESS. Retry only the latter with the same key/payload.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "headers": {
+          "Retry-After": {
+            "description": "Seconds to wait for REQUEST_IN_PROGRESS only.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      },
+      "Error500": {
+        "description": "INTERNAL_ERROR: unexpected service failure; no stack trace.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

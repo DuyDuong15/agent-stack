@@ -1,0 +1,136 @@
+"""Bài 1 approved read-only schema. Employee and Ticket REST resolvers."""
+schema {
+  query: Query
+}
+
+"""UUID string; input must be valid UUID, normalized to lowercase."""
+scalar UUID
+
+"""Valid ISO 8601 timestamp with timezone; output normalized to UTC."""
+scalar DateTime
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+type Employee {
+  id: UUID!
+  code: String!
+  name: String!
+  department: String!
+  active: Boolean!
+}
+
+type Ticket {
+  id: UUID!
+  code: String!
+  title: String!
+  description: String!
+  requesterId: UUID!
+  assigneeId: UUID
+  priority: TicketPriority!
+  status: TicketStatus!
+  dueAt: DateTime
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  """Batch-resolved via Employee REST. Missing ID: null; upstream failure: null plus GraphQL error."""
+  requester: Employee
+  """Null for unassigned or missing employee. Upstream failure additionally produces a GraphQL error."""
+  assignee: Employee
+}
+
+input EmployeeFilter {
+  """Trimmed 1–120 chars. Case/accent-insensitive name substring or exact code."""
+  q: String
+  """Trimmed 1–100 chars; exact case/accent-insensitive match."""
+  department: String
+  """Omit/null includes both active and inactive employees."""
+  active: Boolean
+}
+
+input TicketFilter {
+  """Trimmed 1–200 chars; case/accent-insensitive title or description substring."""
+  q: String
+  """Exact code matching ^IT-[0-9]{6,}$."""
+  code: String
+  status: TicketStatus
+  priority: TicketPriority
+  requesterId: UUID
+  assigneeId: UUID
+  """true: unassigned only; false: assigned only. Cannot combine true with assigneeId."""
+  unassigned: Boolean
+  """REST computes OPEN/IN_PROGRESS with non-null dueAt < evaluatedAt; false is the complement."""
+  overdue: Boolean
+  """Inclusive lower bound."""
+  createdFrom: DateTime
+  """Exclusive upper bound, greater than createdFrom when both are supplied."""
+  createdTo: DateTime
+}
+
+input PaginationInput {
+  """1–100; explicit null is rejected."""
+  limit: Int! = 20
+  """Nonnegative; explicit null is rejected."""
+  offset: Int! = 0
+}
+
+type EmployeePage {
+  items: [Employee!]!
+  total: Int!
+  limit: Int!
+  offset: Int!
+}
+
+type TicketPage {
+  items: [Ticket!]!
+  total: Int!
+  limit: Int!
+  offset: Int!
+  """Timestamp supplied by Ticket REST for this page's filtering/count."""
+  evaluatedAt: DateTime!
+}
+
+type TicketStatusCounts {
+  OPEN: Int!
+  IN_PROGRESS: Int!
+  RESOLVED: Int!
+  CLOSED: Int!
+}
+
+type TicketPriorityCounts {
+  LOW: Int!
+  MEDIUM: Int!
+  HIGH: Int!
+}
+
+"""All matching records, not just a page. All values computed by Ticket REST."""
+type TicketStatistics {
+  total: Int!
+  openCount: Int!
+  overdueCount: Int!
+  byStatus: TicketStatusCounts!
+  byPriority: TicketPriorityCounts!
+  evaluatedAt: DateTime!
+}
+
+type Query {
+  """Ordered by code ascending. Empty match returns a page with items=[] and total=0."""
+  employees(filter: EmployeeFilter, pagination: PaginationInput! = {}): EmployeePage
+  """REST 404 returns null without error; upstream failure returns null with error."""
+  employee(id: UUID!): Employee
+  """Filters combine with AND. Ordered by createdAt DESC then id ASC."""
+  tickets(filter: TicketFilter, pagination: PaginationInput! = {}): TicketPage
+  """Lookup by UUID; use tickets(filter:{code:...}) for a human-readable code."""
+  ticket(id: UUID!): Ticket
+  """Same filters as tickets, without pagination. Includes zeros for every enum value."""
+  ticketStatistics(filter: TicketFilter): TicketStatistics
+}

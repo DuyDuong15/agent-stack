@@ -1,0 +1,1 @@
+{"name":"onboarding-ticket-services","private":true,"type":"module","engines":{"node":">=24"},"scripts":{"employee":"node --env-file=.env server.mjs employee","ticket":"node --env-file=.env server.mjs ticket","test":"node --test"},"dependencies":{"ajv":"^8.20.0","ajv-formats":"^3.0.1","dataloader":"^2.2.3","graphql":"^16.15.0"}}

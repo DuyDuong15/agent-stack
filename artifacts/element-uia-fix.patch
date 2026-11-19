@@ -1,0 +1,110 @@
+diff --git a/apps/web/src/CreateCrossSigning.test.ts b/apps/web/src/CreateCrossSigning.test.ts
+index 111bad0..44f54f5 100644
+--- a/apps/web/src/CreateCrossSigning.test.ts
++++ b/apps/web/src/CreateCrossSigning.test.ts
+@@ -12,7 +12,7 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
+ import { HTTPError, type MatrixClient, MatrixError } from "matrix-js-sdk/src/matrix";
+ import { createTestClient } from "test-utils";
+ 
+-import { createCrossSigning } from "./CreateCrossSigning";
++import { createCrossSigning, uiAuthCallback } from "./CreateCrossSigning";
+ import Modal from "./Modal";
+ 
+ vi.mock("./Modal");
+@@ -96,4 +96,21 @@ describe("CreateCrossSigning", () => {
+         await expect(authUploadDeviceSigningKeys!(makeRequest)).rejects.toThrow(error);
+         expect(makeRequest).not.toHaveBeenCalledWith();
+     });
++
++    it("reuses the original SSO challenge session in the authentication dialog", async () => {
++        const challenge = { session: "original-sso-session", flows: [{ stages: ["m.login.sso"] }] };
++        const makeRequest = vi.fn().mockRejectedValueOnce(new MatrixError(challenge));
++        const createDialog = vi.spyOn(Modal, "createDialog").mockReturnValue({
++            finished: Promise.resolve([true]),
++            close: vi.fn(),
++        });
++
++        await uiAuthCallback(client, makeRequest);
++
++        expect(makeRequest).toHaveBeenCalledTimes(1);
++        expect(createDialog).toHaveBeenCalledWith(
++            expect.anything(),
++            expect.objectContaining({ authData: challenge, makeRequest }),
++        );
++    });
+ });
+diff --git a/apps/web/src/CreateCrossSigning.ts b/apps/web/src/CreateCrossSigning.ts
+index 5f6f3e4..fcc95f0 100644
+--- a/apps/web/src/CreateCrossSigning.ts
++++ b/apps/web/src/CreateCrossSigning.ts
+@@ -67,6 +67,7 @@ export async function uiAuthCallback(
+             title: "",
+             matrixClient,
+             makeRequest,
++            authData: error.data,
+             aestheticsForStagePhases: {
+                 [SSOAuthEntry.LOGIN_TYPE]: dialogAesthetics,
+                 [SSOAuthEntry.UNSTABLE_LOGIN_TYPE]: dialogAesthetics,
+diff --git a/apps/web/src/components/structures/InteractiveAuth.tsx b/apps/web/src/components/structures/InteractiveAuth.tsx
+index 7a98597..d4fbad4 100644
+--- a/apps/web/src/components/structures/InteractiveAuth.tsx
++++ b/apps/web/src/components/structures/InteractiveAuth.tsx
+@@ -87,6 +87,7 @@ export default class InteractiveAuthComponent<T> extends React.Component<Interac
+     private intervalId: number | null = null;
+ 
+     private unmounted = false;
++    private authStarted = false;
+ 
+     public constructor(props: InteractiveAuthProps<T>) {
+         super(props);
+@@ -132,6 +133,10 @@ export default class InteractiveAuthComponent<T> extends React.Component<Interac
+             }, 2000);
+         }
+ 
++        // StrictMode remounts this instance in development; starting twice can create competing UIA sessions.
++        if (this.authStarted) return;
++        this.authStarted = true;
++
+         this.authLogic
+             .attemptAuth()
+             .then(async (result) => {
+diff --git a/apps/web/src/components/structures/InteractiveAuth.test.tsx b/apps/web/src/components/structures/InteractiveAuth.test.tsx
+new file mode 100644
+--- /dev/null
++++ b/apps/web/src/components/structures/InteractiveAuth.test.tsx
+@@ -0,0 +1,35 @@
++/*
++Copyright 2026 Nguyen Duy Duong
++
++SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++Please see LICENSE in the repository root for full details.
++*/
++
++// @vitest-environment happy-dom
++
++import React, { StrictMode } from "react";
++import { render, waitFor, cleanup } from "test-utils-rtl";
++import { afterEach, expect, it, vi } from "vitest";
++import { createTestClient } from "test-utils";
++
++import InteractiveAuthComponent from "./InteractiveAuth";
++
++afterEach(cleanup);
++
++it("starts only one authentication request across the StrictMode remount", async () => {
++    const makeRequest = vi.fn().mockResolvedValue({});
++    const onAuthFinished = vi.fn();
++    render(
++        <StrictMode>
++            <InteractiveAuthComponent
++                matrixClient={createTestClient()}
++                makeRequest={makeRequest}
++                onAuthFinished={onAuthFinished}
++            />
++        </StrictMode>,
++    );
++
++    await waitFor(() => expect(onAuthFinished).toHaveBeenCalledWith(true, {}, expect.anything()));
++    expect(makeRequest).toHaveBeenCalledTimes(1);
++    expect(onAuthFinished).toHaveBeenCalledTimes(1);
++});

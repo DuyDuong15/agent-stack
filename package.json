@@ -1,0 +1,12 @@
+{
+  "name": "agent-onboarding-local-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup:sso": "node setup-keycloak.mjs",
+    "test:sso": "node test-sso.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.65.1"
+  }
+}

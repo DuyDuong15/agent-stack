@@ -1,0 +1,12 @@
+import {log,flushTelemetry} from '../telemetry/index.mjs';
+import {mkdirSync} from 'node:fs';
+import {createApi} from './api.mjs';
+import {settings,localPath} from '../configuration.mjs';
+import {dirname} from 'node:path';
+const kind=process.argv[2];
+if(!['employee','ticket'].includes(kind)) throw new Error('Usage: node server.mjs employee|ticket');
+const prefix=kind.toUpperCase(),dbPath=localPath(settings[prefix+'_DB']);mkdirSync(dirname(dbPath),{recursive:true});
+const api=createApi({kind,apiKey:settings[prefix+'_API_KEY'],dbPath});
+const port=Number(settings[prefix+'_PORT']);
+api.listen(port,settings.REST_HOST,()=>log({event:'ready',service:kind,port}));
+for(const signal of ['SIGINT','SIGTERM']) process.on(signal,()=>api.close(async()=>{await flushTelemetry();process.exit(0);}));

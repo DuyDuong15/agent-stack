@@ -1,0 +1,36 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {mkdtempSync,readdirSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {openStore} from './store.mjs';
+import {fixtures} from './fixtures.mjs';
+const seed=fixtures(new Date('2026-11-17T03:00:00Z'));
+for(const kind of ['employee','ticket']) test(`${kind}: lossless migration, backup, constraints and repeat startup`,()=>{
+ const dir=mkdtempSync(join(tmpdir(),'ticket-migration-')),path=join(dir,'test.sqlite');
+ const rows=seed[kind==='employee'?'employees':'tickets'];
+ let db=new DatabaseSync(path);
+ db.exec('CREATE TABLE records(id TEXT PRIMARY KEY,payload TEXT NOT NULL)');
+ for(const row of rows) db.prepare('INSERT INTO records VALUES (?,?)').run(row.id,JSON.stringify(row));
+ db.close();
+ let store=openStore({kind,dbPath:path,seed});
+ for(const row of rows) assert.deepEqual(store.detail(row.id),row);
+ store.close();
+ assert.equal(readdirSync(dir).filter(n=>n.endsWith('.bak')).length,1);
+ db=new DatabaseSync(path);
+ assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='records'").get().n,0);
+ if(kind==='employee') assert.throws(()=>db.prepare('UPDATE employees SET active=2').run());
+ else assert.throws(()=>db.prepare("UPDATE tickets SET status='INVALID'").run());
+ db.close();
+ store=openStore({kind,dbPath:path,seed});
+ assert.equal(store.select({},new Date().toISOString()).total,rows.length);store.close();
+ assert.equal(readdirSync(dir).filter(n=>n.endsWith('.bak')).length,1);
+});
+test('bad legacy data rolls migration back without losing records',()=>{
+ const path=join(mkdtempSync(join(tmpdir(),'ticket-rollback-')),'test.sqlite');
+ let db=new DatabaseSync(path);db.exec('CREATE TABLE records(id TEXT PRIMARY KEY,payload TEXT NOT NULL)');
+ const row={...seed.employees[0],active:5};db.prepare('INSERT INTO records VALUES (?,?)').run(row.id,JSON.stringify(row));db.close();
+ assert.throws(()=>openStore({kind:'employee',dbPath:path,seed}));
+ db=new DatabaseSync(path);assert.equal(db.prepare('SELECT count(*) AS n FROM records').get().n,1);assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='employees'").get().n,0);db.close();
+});
